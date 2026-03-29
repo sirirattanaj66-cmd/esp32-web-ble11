@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ESP32 Web BLE App</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" type="image/png" href="./favicon.ico" />
+<link rel="stylesheet" type="text/css" href="./style.css" />
+</head>
+
+<body>
+
+<div class="topnav">
+  <h1>ESP32 Web BLE Application</h1>
+</div>
+
+<div class="content">
+
+  <!-- BLE -->
+  <div class="card-grid">
+    <div class="card">
+      <button id="connectBleButton" class="connectButton">Connect BLE</button>
+      <button id="disconnectBleButton" class="disconnectButton">Disconnect</button>
+
+      <p class="gray-label">
+        BLE Status:
+        <strong>
+          <span id="bleState" style="color:red;">Disconnected</span>
+        </strong>
+      </p>
+    </div>
+  </div>
+
+  <!-- DATA -->
+  <div class="card-grid">
+
+    <!-- TEMP -->
+    <div class="card">
+      <h2>Temperature (DS18B20)</h2>
+      <p class="reading">
+        <span id="tempValue">--</span> °C
+      </p>
+      <p class="gray-label">
+        Last update: <span id="tempTime">--</span>
+      </p>
+    </div>
+
+    <!-- LED -->
+    <div class="card">
+      <h2>Control GPIO 2</h2>
+      <button id="onButton" class="onButton">ON</button>
+      <button id="offButton" class="offButton">OFF</button>
+      <p class="gray-label">
+        Last value sent: <span id="valueSent">--</span>
+      </p>
+    </div>
+
+    <!-- MAX30100 -->
+    <div class="card">
+      <h2>MAX30100</h2>
+      <p class="reading">
+        Heart Rate: <span id="hrValue">--</span> bpm
+      </p>
+      <p class="reading">
+        SpO₂: <span id="spo2Value">--</span> %
+      </p>
+      <p class="gray-label">
+        Last update: <span id="maxTime">--</span>
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+
+/* ===== ELEMENTS ===== */
+const connectBtn = document.getElementById("connectBleButton");
+const disconnectBtn = document.getElementById("disconnectBleButton");
+const onBtn = document.getElementById("onButton");
+const offBtn = document.getElementById("offButton");
+
+const bleState = document.getElementById("bleState");
+const tempValue = document.getElementById("tempValue");
+const tempTime = document.getElementById("tempTime");
+const valueSent = document.getElementById("valueSent");
+
+const hrValue = document.getElementById("hrValue");
+const spo2Value = document.getElementById("spo2Value");
+const maxTime = document.getElementById("maxTime");
+
+/* ===== BLE CONFIG ===== */
+const deviceName = "ESP32JuLie";
+
+const serviceUUID = "19b10000-e8f2-537e-4f6c-d104768a1214";
+const tempUUID    = "19b10001-e8f2-537e-4f6c-d104768a1214";
+const ledUUID     = "19b10002-e8f2-537e-4f6c-d104768a1214";
+const hrUUID      = "19b10003-e8f2-537e-4f6c-d104768a1214";
+const spo2UUID    = "19b10004-e8f2-537e-4f6c-d104768a1214";
+
+/* ===== BLE VAR ===== */
+let bleDevice = null;
+let bleServer = null;
+let bleService = null;
+
+/* ===== EVENTS ===== */
+connectBtn.onclick = connectBLE;
+disconnectBtn.onclick = disconnectBLE;
+onBtn.onclick = () => writeLED(1);
+offBtn.onclick = () => writeLED(0);
+
+/* ===== CONNECT ===== */
+function connectBLE() {
+  navigator.bluetooth.requestDevice({
+    filters: [{ name: deviceName }],
+    optionalServices: [serviceUUID]
+  })
+  .then(device => {
+    bleDevice = device;
+    bleState.textContent = "Connected";
+    bleState.style.color = "green";
+
+    device.addEventListener("gattservicedisconnected", onDisconnected);
+    return device.gatt.connect();
+  })
+  .then(server => {
+    bleServer = server;
+    return server.getPrimaryService(serviceUUID);
+  })
+  .then(service => {
+    bleService = service;
+    return service.getCharacteristic(tempUUID);
+  })
+  .then(char => {
+    char.addEventListener("characteristicvaluechanged", e => {
+      tempValue.textContent = new TextDecoder().decode(e.target.value);
+      tempTime.textContent = new Date().toLocaleString();
+    });
+    return char.startNotifications();
+  })
+
+  // HR
+  .then(() => bleService.getCharacteristic(hrUUID))
+  .then(char => {
+    char.addEventListener("characteristicvaluechanged", e => {
+      hrValue.textContent = new TextDecoder().decode(e.target.value);
+      maxTime.textContent = new Date().toLocaleString();
+    });
+    return char.startNotifications();
+  })
+
+  // SPO2
+  .then(() => bleService.getCharacteristic(spo2UUID))
+  .then(char => {
+    char.addEventListener("characteristicvaluechanged", e => {
+      spo2Value.textContent = new TextDecoder().decode(e.target.value);
+      maxTime.textContent = new Date().toLocaleString();
+    });
+    return char.startNotifications();
+  })
+
+  .catch(err => {
+    console.error(err);
+    bleState.textContent = "Disconnected";
+    bleState.style.color = "red";
+  });
+}
+
+/* ===== WRITE LED ===== */
+function writeLED(val) {
+  if (!bleService) {
+    alert("Not connected");
+    return;
+  }
+
+  bleService.getCharacteristic(ledUUID)
+  .then(char => {
+    char.writeValue(new Uint8Array([val]));
+    valueSent.textContent = val ? "ON" : "OFF";
+  });
+}
+
+/* ===== DISCONNECT ===== */
+function disconnectBLE() {
+  if (bleDevice && bleDevice.gatt.connected) {
+    bleDevice.gatt.disconnect();
+  }
+}
+
+/* ===== CALLBACK ===== */
+function onDisconnected() {
+  bleState.textContent = "Disconnected";
+  bleState.style.color = "red";
+}
+
+</script>
+
+</body>
+</html>
